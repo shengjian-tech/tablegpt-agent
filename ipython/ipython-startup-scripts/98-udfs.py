@@ -4,9 +4,8 @@ import concurrent.futures
 import os
 from pathlib import Path
 from typing import NamedTuple, cast
-
+from sqlalchemy import create_engine,Engine
 import pandas as pd
-
 
 class FileEncoding(NamedTuple):
     """File encoding as the NamedTuple."""
@@ -86,6 +85,21 @@ def path_from_uri(uri: str) -> Path:
 def file_extention(file: str) -> str:
     path = Path(file)
     return path.suffix
+
+def create_db(uri: str, *, autodetect_encoding: bool = True, **kwargs) -> Engine:
+    """A simple wrapper to read different file formats into DataFrame."""
+    try:
+        content = ""
+        path = "/home/agi/lxk_testRagkb/static/sqlConnInfo/"+uri+".txt"
+        with open(path, "r", encoding="utf-8") as file:
+            content = file.read()
+        if len(content) > 0:
+            engine = create_engine(content)
+            return engine
+        else:
+            raise ValueError(f"获取连接失败")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"获取连接失败")  # noqa: RUF001
 
 
 def read_df(uri: str, *, autodetect_encoding: bool = True, **kwargs) -> pd.DataFrame:

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import date  # noqa: TCH003
@@ -16,7 +15,6 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
-
 from tablegpt.agent.output_parser import MarkdownOutputParser
 from tablegpt.retriever import format_columns
 from tablegpt.safety import create_hazard_classifier, hazard_categories
@@ -37,7 +35,6 @@ if TYPE_CHECKING:
     from langchain_core.runnables import Runnable
     from langchain_text_splitters import TextSplitter
     from pybox.base import BasePyBoxManager
-
 
 @dataclass
 class TruncationConfig:
@@ -94,7 +91,6 @@ class TruncationConfig:
     concatenated to recreate the original text. Defaults to splitting on
     newlines."""
 
-
 INSTRUCTION = """You are TableGPT2, an expert Python data analyst developed by Zhejiang University. Your job is to help user analyze datasets by writing Python code. Each markdown codeblock you write will be executed in an IPython environment, and you will receive the execution output. You should provide results analysis based on the execution output.
 For politically sensitive questions, security and privacy issues, or other non-data analyze questions, you will refuse to answer.
 
@@ -102,19 +98,45 @@ Remember:
 - Comprehend the user's requirements carefully & to the letter.
 - If additional information is needed, feel free to ask the user.
 - Give a brief description for what you plan to do & write Python code.
-- You can use `read_df(uri: str) -> pd.DataFrame` function to read different file formats into DataFrame.
+- You can use `create_db(uri: str) -> pd.DataFrame` function to connect different database into DataFrame.
 - When creating charts, prefer using `seaborn`.
 - DO NOT include images using markdown syntax (![]()) in your response under ANY circumstances.
 - If error occurred, try to fix it.
 - Response in the same language as the user.
+- If there are clearly corresponding fields in the data schema, generate a response with the total number of records and the detailed content of each record. Otherwise, reply normally that there is no relevant data.
+- FINAL ANSWER FORMAT:Please provide your response as a JSON object, structured as follows:
+        {{    
+            "results": [
+                {{
+                    "query_code": "copy tool_calls list query value",
+                    "table_contents": {{
+                    "chain_of_thought_reasoning": [
+                        "selecting column1",
+                        "selecting column2",                    
+                        ...
+                    ],
+                    "column_name": ["column1", "column2", ...],
+                    "data": [{{"column1":"data1","column2":"data2", ...}}, ...],                
+                    }},
+                    "table_name":"tablename",
+                }}
+            ]
+        }}
 - Today is {date}"""
 
-PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", INSTRUCTION),
-        ("placeholder", "{messages}"),
-    ]
-)
+
+PROMPT = None
+
+def set_prompt(CREATE_SQL:str):
+    print("---------------->"+CREATE_SQL)
+    global PROMPT
+    PROMPT = ChatPromptTemplate.from_messages(
+        [
+            ("system", INSTRUCTION),
+            ("system", CREATE_SQL),
+            ("placeholder", "{messages}"),
+        ]
+    )
 
 
 def get_data_analyzer_agent(llm: BaseLanguageModel) -> Runnable:

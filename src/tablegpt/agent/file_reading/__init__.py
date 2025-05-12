@@ -6,6 +6,7 @@ from ast import literal_eval
 from enum import Enum
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
+from sqlalchemy import create_engine
 
 import pandas as pd
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
@@ -34,6 +35,7 @@ class Stage(Enum):
     UPLOADED = 0
     INFO_READ = 1
     HEAD_READ = 2
+    HEAD_END = 3
 
 
 class AgentState(MessagesState):
@@ -49,15 +51,15 @@ ENCODER_INPUT_SEG_NUM = 2
 
 
 def create_file_reading_workflow(
-    llm: BaseLanguageModel,
-    pybox_manager: BasePyBoxManager,
-    *,
-    workdir: Path | None = None,
-    session_id: str | None = None,
-    nlines: int | None = None,
-    normalize_llm: BaseLanguageModel | None = None,
-    locale: str | None = None,
-    verbose: bool = False,
+        llm: BaseLanguageModel,
+        pybox_manager: BasePyBoxManager,
+        *,
+        workdir: Path | None = None,
+        session_id: str | None = None,
+        nlines: int | None = None,
+        normalize_llm: BaseLanguageModel | None = None,
+        locale: str | None = None,
+        verbose: bool = False,
 ):
     """Create a workflow for reading and processing files using an agent-based approach.
 
@@ -93,6 +95,8 @@ def create_file_reading_workflow(
             return await get_df_info(state)
         if state.get("processing_stage", Stage.UPLOADED) == Stage.INFO_READ:
             return get_df_head(state)
+        if state.get("processing_stage", Stage.UPLOADED) == Stage.HEAD_READ:
+            return get_df_end(state)
 
         return get_final_answer(state)
 
@@ -139,7 +143,6 @@ def create_file_reading_workflow(
         thought = f"我已经收到您的数据文件，我需要查看文件内容以对数据集有一个初步的了解。首先我会读取数据到 `{var_name}` 变量中，并通过 `{var_name}.info` 查看 NaN 情况和数据类型。"  # noqa: RUF001
         if translation_chain is not None:
             thought = await translation_chain.ainvoke(input={"locale": locale, "input": thought})
-
         read_df_code = f"""# Load the data into a DataFrame
 {var_name} = read_df('{filename}')"""
 
@@ -243,6 +246,50 @@ print(str(inspect_df({var_name})), flush=True)"""
             "processing_stage": Stage.HEAD_READ,
         }
 
+    def get_df_end(state: AgentState) -> dict:
+        if attachments := state["entry_message"].additional_kwargs.get("attachments"):
+            # TODO: we only support one file for now
+            filename = attachments[0]["filename"]
+        else:
+            raise NoAttachmentsError
+        db_conn = state["entry_message"].additional_kwargs.get("var_name", "engine")
+        thought = f"我已经根据数据库连接信息创建了数据库连接并保存到 `{db_conn}` 变量中，后面请通过 `{db_conn}` 来连接数据库并根据相应的查询语句执行数据库查询,输出执行结果的全部内容不要省略,请根据查询语句通过查询数据库来得到结果,若没有查询到结果,正常回复没有相关数据"  # noqa: RUF001
+        if translation_chain is not None:
+            thought = translation_chain.ainvoke(input={"locale": locale, "input": thought})
+        create_db_code = f"""# Load the data into a DataFrame
+{db_conn} = create_db('{filename}')"""
+
+        tool_input = f"""{create_db_code}
+"""
+
+        content = f"{thought}\n```python\n{tool_input}\n```"
+        # content = f"{thought}\n"
+        return {
+            "messages": [
+                AIMessage(
+                    id=str(uuid4()),
+                    content=content,
+                    tool_calls=[
+                        {
+                            "name": "python",
+                            "args": {"query": tool_input},
+                            "id": str(uuid4()),
+                        }
+                    ],
+                    additional_kwargs={
+                        "parent_id": state["parent_id"],
+                        "thought": thought,
+                        "action": {
+                            "tool": "python",
+                            "tool_input": tool_input,
+                        },
+                        "model_type": model_type,
+                    },
+                )
+            ],
+            "processing_stage": Stage.HEAD_END,
+        }
+
     def get_final_answer(state: AgentState) -> dict:
         if attachments := state["entry_message"].additional_kwargs.get("attachments"):
             # TODO: we only support one file for now
@@ -277,8 +324,8 @@ print(str(inspect_df({var_name})), flush=True)"""
             }
             # TODO: this is very hard-coded to format encoder input like this.
             if (
-                model_type in {"mm-tabular/markup", "mm-tabular/contrastive"}
-                and len(message.content) == ENCODER_INPUT_SEG_NUM
+                    model_type in {"mm-tabular/markup", "mm-tabular/contrastive"}
+                    and len(message.content) == ENCODER_INPUT_SEG_NUM
             ):
                 _df_head, _extra = message.content
                 table_content = (
