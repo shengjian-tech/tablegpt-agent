@@ -90,7 +90,7 @@ def create_db(uri: str, *, autodetect_encoding: bool = True, **kwargs) -> Engine
     """A simple wrapper to read different file formats into DataFrame."""
     try:
         content = ""
-        path = "/home/agi/lxk_testRagkb/static/sqlConnInfo/"+uri+".txt"
+        path = "/home/agi/ragkb/static/sqlConnInfo/"+uri+".txt"
         with open(path, "r", encoding="utf-8") as file:
             content = file.read()
         if len(content) > 0:
