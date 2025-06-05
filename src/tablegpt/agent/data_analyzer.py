@@ -104,24 +104,6 @@ Remember:
 - If error occurred, try to fix it.
 - Response in the same language as the user.
 - If there are clearly corresponding fields in the data schema, generate a response with the total number of records and the detailed content of each record. Otherwise, reply normally that there is no relevant data.
-- FINAL ANSWER FORMAT:Please provide your response as a JSON object, structured as follows:
-        {{    
-            "results": [
-                {{
-                    "query_code": "copy tool_calls list query value",
-                    "table_contents": {{
-                    "chain_of_thought_reasoning": [
-                        "selecting column1",
-                        "selecting column2",                    
-                        ...
-                    ],
-                    "column_name": ["column1", "column2", ...],
-                    "data": [{{"column1":"data1","column2":"data2", ...}}, ...],                
-                    }},
-                    "table_name":"tablename",
-                }}
-            ]
-        }}
 - Today is {date}"""
 
 
